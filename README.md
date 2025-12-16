@@ -47,7 +47,7 @@ scBatchCorr/
 
 **Functions' descriptions**
 ```r
-*reprocessing1_integration_pca*
+I. reprocessing1_integration_pca
 
 This function integrates multiple datasets and performs PCA. It normalizes the data using SCTransform and finds integration anchors using RPCA. It then runs PCA on the integrated object to reduce dimensionality.
 
@@ -62,7 +62,7 @@ Output:
 	•	Integrated Seurat object with PCA results.
 	•	Elbow plot saved as .png.
 
-*reprocessing2_umap_clustering*
+II. reprocessing2_umap_clustering
 
 This function performs UMAP embedding and clustering at multiple resolutions using the Louvain algorithm. It visualizes the results and checks for batch mixing by plotting the UMAP colored by sample identity.
 
@@ -77,7 +77,7 @@ Output:
 	•	UMAP plot saved for each resolution.
 	•	Final clustered Seurat object saved for downstream analyses.
 
-*reprocessing3_export_resolution*
+III. reprocessing3_export_resolution
 
 This function exports a final resolution and generates a UMAP plot labeled by clusters.
 
@@ -89,7 +89,7 @@ Parameters:
 Output:
 	•	UMAP plot saved for the selected resolution.
 
-*reprocessing4_summarize_umap*
+IV. reprocessing4_summarize_umap
 
 This function summarizes clustering results, visualizes UMAP, and generates a table with cluster counts and metadata for cells.
 

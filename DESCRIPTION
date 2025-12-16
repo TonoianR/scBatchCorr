@@ -1,0 +1,23 @@
+Package: scBatchCorr
+Type: Package
+Title: Batch Correction and Clustering Utilities for Single-Cell RNA-seq
+Version: 0.1.0
+Authors@R: 
+    person("Robert", "Tonoian", email = "your@email.com", role = c("aut", "cre"))
+Description: 
+    A set of reusable functions for batch correction, integration, UMAP embedding,
+    clustering, resolution selection, and inspection of single-cell RNA-seq data
+    using Seurat. Designed for modular, project-agnostic scRNA-seq workflows.
+License: MIT
+Encoding: UTF-8
+LazyData: true
+Imports:
+    Seurat,
+    ggplot2,
+    qs,
+    patchwork,
+    dplyr,
+    readr,
+    knitr
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2

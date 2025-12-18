@@ -7,8 +7,8 @@
 #' @param name Character scalar used as filename prefix.
 #' @param nfeatures Number of integration features.
 #' @param npcs Number of principal components.
-#' @param out_dir Base output directory (default: current directory).
-#' @param seed Random seed for reproducibility (default: NULL = no seed set).
+#' @param out_dir Base output directory.
+#' @param seed Random seed for reproducibility (default: NULL).
 #'
 #' @return A Seurat object after integration and PCA.
 #'
@@ -18,7 +18,7 @@ reprocessing1_integration_pca <- function(
     name,
     nfeatures = 3000,
     npcs = 50,
-    out_dir = ".",
+    out_dir,
     seed = NULL
 ) {
   
@@ -35,6 +35,14 @@ reprocessing1_integration_pca <- function(
     stop("`name` must be a single character string.")
   }
   
+  if (!is.character(out_dir) || length(out_dir) != 1) {
+    stop("`out_dir` must be a single directory path.")
+  }
+  
+  if (!dir.exists(out_dir)) {
+    stop("`out_dir` does not exist: ", out_dir)
+  }
+  
   if (!is.null(seed)) {
     set.seed(seed)
   }
@@ -46,12 +54,14 @@ reprocessing1_integration_pca <- function(
   dir.create(out_outputs, recursive = TRUE, showWarnings = FALSE)
   dir.create(out_plots, recursive = TRUE, showWarnings = FALSE)
   
-  message(">>> Starting integration and PCA for ", name)
+  message(">>> Starting SCT + RPCA integration for ", name)
+  message(">>> Output directory: ", normalizePath(out_dir))
   
   # -------------------- SCT normalization --------------------
   DefaultAssay(obj) <- "RNA"
   
   obj_list <- SplitObject(obj, split.by = "orig.ident")
+  
   obj_list <- lapply(
     obj_list,
     function(x) {
@@ -62,11 +72,6 @@ reprocessing1_integration_pca <- function(
         verbose = FALSE
       )
     }
-  )
-  
-  qs::qsave(
-    obj_list,
-    file.path(out_outputs, paste0(name, "_list_SCT.qs"))
   )
   
   rm(obj)
@@ -83,8 +88,15 @@ reprocessing1_integration_pca <- function(
   invisible(gc(full = TRUE))
   
   # -------------------- RPCA integration --------------------
-  features <- SelectIntegrationFeatures(obj_list, nfeatures = nfeatures)
-  obj_list <- PrepSCTIntegration(obj_list, anchor.features = features)
+  features <- SelectIntegrationFeatures(
+    object.list = obj_list,
+    nfeatures = nfeatures
+  )
+  
+  obj_list <- PrepSCTIntegration(
+    object.list = obj_list,
+    anchor.features = features
+  )
   
   anchors <- FindIntegrationAnchors(
     object.list = obj_list,
@@ -97,24 +109,29 @@ reprocessing1_integration_pca <- function(
   invisible(gc(full = TRUE))
   
   integrated <- IntegrateData(
-    anchors,
+    anchorset = anchors,
     normalization.method = "SCT"
   )
   
-  qs::qsave(
-    integrated,
-    file.path(out_outputs, paste0(name, "_integrated.qs"))
-  )
+  DefaultAssay(integrated) <- "integrated"
   
   # -------------------- PCA + ElbowPlot --------------------
-  integrated <- RunPCA(integrated, npcs = npcs, verbose = FALSE)
+  integrated <- RunPCA(
+    integrated,
+    npcs = npcs,
+    verbose = FALSE
+  )
   
+  # SAVE integrated object after PCA  ✅
   qs::qsave(
     integrated,
     file.path(out_outputs, paste0(name, "_integrated_after_pca.qs"))
   )
   
-  elbow_plot <- ElbowPlot(integrated, ndims = npcs)
+  elbow_plot <- ElbowPlot(
+    integrated,
+    ndims = npcs
+  )
   
   ggplot2::ggsave(
     filename = file.path(out_plots, paste0(name, "_ElbowPlot.png")),
@@ -127,14 +144,9 @@ reprocessing1_integration_pca <- function(
   invisible(gc(full = TRUE))
   
   message(">>> Integration and PCA completed for ", name)
+  message(">>> Integrated object saved to: ",
+          file.path(out_outputs, paste0(name, "_integrated_after_pca.qs")))
+  message(">>> Elbow plot saved to: ", file.path(out_plots, paste0(name, "_ElbowPlot.png")))
   
   return(integrated)
 }
-
-#' Example of usage
-#' integrated_obj <- reprocessing1_integration_pca(
-#' obj    = AC_hem,
-#' name   = "AC_hem",
-#' out_dir = "/path/to/project",
-#' seed   = 1234
-#' )

@@ -70,12 +70,19 @@ reprocessing1_integration_pca <- function(
   obj_list <- lapply(
     obj_list,
     function(x) {
+      
+      DefaultAssay(x) <- "RNA"
+      
+      # CRITICAL: remove any existing SCT state
+      if ("SCT" %in% names(x@assays)) {
+        x[["SCT"]] <- NULL
+      }
+      
       SCTransform(
         x,
         vst.flavor = "v2",
         method = "glmGamPoi",
-        verbose = FALSE,
-        overwrite = TRUE
+        verbose = FALSE
       )
     }
   )

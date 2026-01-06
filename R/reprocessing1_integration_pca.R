@@ -74,7 +74,8 @@ reprocessing1_integration_pca <- function(
         x,
         vst.flavor = "v2",
         method = "glmGamPoi",
-        verbose = FALSE
+        verbose = FALSE,
+        overwrite = TRUE
       )
     }
   )

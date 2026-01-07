@@ -23,21 +23,12 @@ reprocessing1_integration_pca <- function(
 ) {
   
   # -------------------- validation --------------------
-  if (inherits(obj, "Seurat")) {
-    
-    if (!"orig.ident" %in% colnames(obj@meta.data)) {
-      stop("`orig.ident` column not found in Seurat object metadata.")
-    }
-    
-    DefaultAssay(obj) <- "RNA"
-    obj_list <- SplitObject(obj, split.by = "orig.ident")
-    
-  } else if (is.list(obj) && all(vapply(obj, inherits, logical(1), "Seurat"))) {
-    
-    obj_list <- obj
-    
-  } else {
-    stop("`obj` must be a Seurat object or a list of Seurat objects.")
+  if (!inherits(obj, "Seurat")) {
+    stop("`obj` must be a Seurat object.")
+  }
+  
+  if (!"orig.ident" %in% colnames(obj@meta.data)) {
+    stop("`orig.ident` column not found in Seurat object metadata.")
   }
   
   if (!is.character(name) || length(name) != 1) {
@@ -67,17 +58,13 @@ reprocessing1_integration_pca <- function(
   message(">>> Output directory: ", normalizePath(out_dir))
   
   # -------------------- SCT normalization --------------------
+  DefaultAssay(obj) <- "RNA"
+  
+  obj_list <- SplitObject(obj, split.by = "orig.ident")
+  
   obj_list <- lapply(
     obj_list,
     function(x) {
-      
-      DefaultAssay(x) <- "RNA"
-      
-      # CRITICAL: remove any existing SCT state
-      if ("SCT" %in% names(x@assays)) {
-        x[["SCT"]] <- NULL
-      }
-      
       SCTransform(
         x,
         vst.flavor = "v2",

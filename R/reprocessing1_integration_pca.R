@@ -57,13 +57,19 @@ reprocessing1_integration_pca <- function(
   message(">>> Starting SCT + RPCA integration for ", name)
   message(">>> Output directory: ", normalizePath(out_dir))
   
-  # ---- HARD RESET SCT STATE ----
-  if ("SCT" %in% names(obj@assays)) {
-    obj[["SCT"]] <- NULL
-  }
+  # ---- HARD RESET RNA ASSAY (Seurat v5 safe) ----
+  DefaultAssay(obj) <- "RNA"
   
-  obj@assays$RNA@misc <- list()
-  obj@misc <- list()
+  rna_counts <- GetAssayData(obj, assay = "RNA", layer = "counts")
+  
+  # Rebuild RNA assay from counts only (drops data/scale.data layers that may be inconsistent)
+  obj[["RNA"]] <- CreateAssayObject(counts = rna_counts)
+  
+  # Remove SCT assay if present (clean state)
+  if ("SCT" %in% names(obj@assays)) obj[["SCT"]] <- NULL
+  
+  # Clear variable features to avoid stale state
+  VariableFeatures(obj) <- character(0)
   
   # -------------------- SCT normalization --------------------
   DefaultAssay(obj) <- "RNA"

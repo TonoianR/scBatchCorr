@@ -57,6 +57,14 @@ reprocessing1_integration_pca <- function(
   message(">>> Starting SCT + RPCA integration for ", name)
   message(">>> Output directory: ", normalizePath(out_dir))
   
+  # ---- HARD RESET SCT STATE ----
+  if ("SCT" %in% names(obj@assays)) {
+    obj[["SCT"]] <- NULL
+  }
+  
+  obj@assays$RNA@misc <- list()
+  obj@misc <- list()
+  
   # -------------------- SCT normalization --------------------
   DefaultAssay(obj) <- "RNA"
   

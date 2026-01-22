@@ -21,116 +21,78 @@ reprocessing1_integration_pca <- function(
     npcs = 50,
     out_dir,
     seed = NULL,
-    min_cells = 10
+    min_cells = 5
 ) {
-  
-  # -------------------- Validation & Setup --------------------
-  if (!inherits(obj, "Seurat")) stop("`obj` must be a Seurat object.")
-  if (!"orig.ident" %in% colnames(obj@meta.data)) stop("`orig.ident` column not found.")
-  if (!dir.exists(out_dir)) stop("`out_dir` does not exist: ", out_dir)
+  # 1. Setup
   if (!is.null(seed)) set.seed(seed)
-  
   out_outputs <- file.path(out_dir, "Outputs")
   out_plots   <- file.path(out_dir, "Plots")
   dir.create(out_outputs, recursive = TRUE, showWarnings = FALSE)
   dir.create(out_plots, recursive = TRUE, showWarnings = FALSE)
   
-  message(">>> Starting Seurat v5 Robust SCT + RPCA integration for: ", name)
-  
-  # ---- 1. AGGRESSIVE SANITIZATION (The "Subscript Out of Bounds" Fix) ----
+  # 2. Reset and Clean
   DefaultAssay(obj) <- "RNA"
+  obj <- JoinLayers(obj) # Ensure we start with a clean, single layer
   
-  # Join all layers (counts.1, counts.2, etc) into a single matrix
-  # This is critical in Seurat v5 after subsetting.
-  obj <- JoinLayers(obj)
-  
-  # Extract raw counts and metadata to build a clean 'Reset' object
-  raw_counts <- GetAssayData(obj, assay = "RNA", layer = "counts")
-  metadata <- obj@meta.data
-  
-  # Create a fresh object to break all links to stale SCT assays or PCA slots
-  new_obj <- CreateSeuratObject(counts = raw_counts, meta.data = metadata)
-  
-  # ---- 2. SPLIT & FILTER SAMPLES ----
-  obj_list <- SplitObject(new_obj, split.by = "orig.ident")
-  
-  # Filter out samples below the threshold
+  # 3. Split and Filter
+  obj_list <- SplitObject(obj, split.by = "orig.ident")
   cell_counts <- sapply(obj_list, ncol)
-  valid_samples <- names(cell_counts)[cell_counts >= min_cells]
+  obj_list <- obj_list[names(cell_counts)[cell_counts >= min_cells]]
   
-  if (length(valid_samples) < length(obj_list)) {
-    dropped <- setdiff(names(obj_list), valid_samples)
-    message(">>> Warning: Dropping samples with < ", min_cells, " cells: ", paste(dropped, collapse = ", "))
-    obj_list <- obj_list[valid_samples]
-  }
+  if (length(obj_list) < 2) stop("Not enough samples for integration.")
   
-  if (length(obj_list) < 2) {
-    stop("Integration requires at least 2 samples with more than ", min_cells, " cells.")
-  }
+  # 4. Uniform Dimension Logic (RPCA Matrix Match Fix)
+  min_size <- min(sapply(obj_list, ncol))
+  safe_npcs <- max(2, min(npcs, (min_size - 1)))
+  message(">>> Smallest batch: ", min_size, " cells. Using safe_npcs: ", safe_npcs)
   
-  # ---- 3. ADAPTIVE SCT & PCA PER SAMPLE ----
-  message(">>> Running SCTransform and PCA on individual samples...")
+  # 5. SCT and PCA (Per Sample)
   obj_list <- lapply(obj_list, function(x) {
-    # Wrapped in try() to ensure one bad sample doesn't kill the whole pipeline
-    x <- tryCatch({
-      x <- SCTransform(x, vst.flavor = "v2", method = "glmGamPoi", verbose = FALSE)
-      
-      # DYNAMIC PC CALCULATION
-      current_npcs <- min(npcs, (ncol(x) - 1))
-      if (current_npcs > 1) {
-        x <- RunPCA(x, npcs = current_npcs, verbose = FALSE)
-      }
-      return(x)
-    }, error = function(e) {
-      message(">>> Error in sample ", unique(x$orig.ident), ": ", e$message)
-      return(NULL)
-    })
+    x <- SCTransform(x, vst.flavor = "v2", method = "glmGamPoi", verbose = FALSE)
+    x <- RunPCA(x, npcs = safe_npcs, verbose = FALSE)
     return(x)
   })
   
-  # Remove any samples where SCT failed
-  obj_list <- Filter(Negate(is.null), obj_list)
+  # 6. Integration
+  features <- SelectIntegrationFeatures(obj_list, nfeatures = nfeatures)
+  obj_list <- PrepSCTIntegration(obj_list, anchor.features = features)
   
-  if (length(obj_list) < 2) stop("Fewer than 2 samples survived SCTransform.")
-  
-  invisible(gc(full = TRUE))
-  
-  # ---- 4. RPCA INTEGRATION ----
-  # Ensure feature count doesn't exceed total genes available in the smallest SCT assay
-  actual_features <- min(nfeatures, nrow(obj_list[[1]][["SCT"]]))
-  
-  features <- SelectIntegrationFeatures(object.list = obj_list, nfeatures = actual_features)
-  obj_list <- PrepSCTIntegration(object.list = obj_list, anchor.features = features)
-  
-  # DYNAMIC K.ANCHOR: adjust for small neighborhoods
-  min_cells_found <- min(sapply(obj_list, ncol))
-  adaptive_k_anchor <- min(5, min_cells_found - 1)
-  
-  message(">>> Finding anchors (k.anchor: ", adaptive_k_anchor, ")")
   anchors <- FindIntegrationAnchors(
-    object.list = obj_list,
+    object.list = obj_list, 
     normalization.method = "SCT",
-    anchor.features = features,
-    reduction = "rpca",
-    k.anchor = adaptive_k_anchor
+    anchor.features = features, 
+    dims = 1:safe_npcs, 
+    reduction = "rpca", 
+    k.anchor = min(5, (min_size - 1))
   )
   
   integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT")
   
-  # ---- 5. FINAL REDUCTION & EXPORT ----
-  DefaultAssay(integrated) <- "integrated"
+  # 7. CONSOLIDATING RNA LAYERS (As requested: counts, data, scale.data)
+  # First, join the split counts from the various batches
+  integrated <- JoinLayers(integrated, assay = "RNA")
   
+  # Populate 'data' and 'scale.data' layers in the RNA assay
+  # Note: This uses standard LogNormalization for the RNA assay specifically
+  integrated <- NormalizeData(integrated, assay = "RNA", verbose = FALSE)
+  integrated <- ScaleData(integrated, assay = "RNA", verbose = FALSE)
+  
+  # 8. Final PCA & Default Assay Setting
+  DefaultAssay(integrated) <- "integrated"
   final_npcs <- min(npcs, (ncol(integrated) - 1))
   integrated <- RunPCA(integrated, npcs = final_npcs, verbose = FALSE)
   
-  # Save object
+  # 9. Save and Plot
   qs::qsave(integrated, file.path(out_outputs, paste0(name, "_integrated_after_pca.qs")))
   
-  # Elbow Plot
   elbow_plot <- ElbowPlot(integrated, ndims = final_npcs)
-  ggplot2::ggsave(filename = file.path(out_plots, paste0(name, "_ElbowPlot.png")),
-                  plot = elbow_plot, width = 7, height = 5, dpi = 300)
+  ggplot2::ggsave(file.path(out_plots, paste0(name, "_ElbowPlot.png")), 
+                  plot = elbow_plot, width = 7, height = 5)
   
-  message(">>> Integration successfully completed for ", name)
+  message(">>> Integration Success!")
+  message(">>> Assays: ", paste(Assays(integrated), collapse=", "))
+  message(">>> RNA Layers: ", paste(Layers(integrated[["RNA"]]), collapse=", "))
+  message(">>> Default Assay: ", DefaultAssay(integrated))
+  
   return(integrated)
 }

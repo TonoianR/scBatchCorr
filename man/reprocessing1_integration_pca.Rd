@@ -2,15 +2,16 @@
 % Please edit documentation in R/reprocessing1_integration_pca.R
 \name{reprocessing1_integration_pca}
 \alias{reprocessing1_integration_pca}
-\title{SCT-based RPCA integration followed by PCA}
+\title{SCT-based RPCA integration followed by PCA (Seurat v5 Robust Version)}
 \usage{
 reprocessing1_integration_pca(
   obj,
   name,
   nfeatures = 3000,
   npcs = 50,
-  out_dir = ".",
-  seed = NULL
+  out_dir,
+  seed = NULL,
+  min_cells = 10
 )
 }
 \arguments{
@@ -22,14 +23,16 @@ reprocessing1_integration_pca(
 
 \item{npcs}{Number of principal components.}
 
-\item{out_dir}{Base output directory (default: current directory).}
+\item{out_dir}{Base output directory.}
 
-\item{seed}{Random seed for reproducibility (default: NULL = no seed set).}
+\item{seed}{Random seed for reproducibility.}
+
+\item{min_cells}{Minimum cells required per sample (default: 10).}
 }
 \value{
 A Seurat object after integration and PCA.
 }
 \description{
 Performs SCT normalization, RPCA-based integration, PCA, and ElbowPlot
-generation for a Seurat object split by \code{orig.ident}.
+with aggressive cleaning to prevent Seurat v5 layer-mismatch errors.
 }

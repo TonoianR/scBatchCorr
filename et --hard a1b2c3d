@@ -1,0 +1,16 @@
+[33m500d9db[m Initial commit
+[33m102f30c[m Update README.md
+[33m4dc94d5[m Delete README.md
+[33m76e5905[m Initial scBatchCorr package with batch correction functions
+[33mef101ac[m Update README
+[33m4d36995[m Update README
+[33m241b5ba[m Add NAMESPACE and documentation via roxygen2
+[33mb50956e[m Fix: set DefaultAssay to integrated and finalize integration output
+[33ma2702ae[m Allow reprocessing1_integration_pca to accept list of Seurat objects
+[33m199a29e[m Bump version to 0.1.1
+[33mf228ebb[m Fix SCT integration for list input by enforcing clean SCTransform
+[33m7c00d47[m Fix SCT integration for list input by enforcing clean SCTransform
+[33md831294[m Revert reprocessing1_integration_pca to stable single-object implementation
+[33mafe3bd3[m Fix SCT reprocessing by hard-resetting stale SCT state
+[33m2eb1d95[m Fix Seurat v5 RNA layer corruption before SCT integration
+[33mdac0388[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Add Step 0 rebuild from raw counts and update README (v0.2.0)

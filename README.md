@@ -21,12 +21,6 @@ remotes::install_github("TonoianR/scBatchCorr")
 library(Seurat)
 library(scBatchCorr)
 
-# Step 0: Rebuild clean object
-obj <- reprocessing0_rebuild_from_raw(
-  subset_obj = obj,
-  parent_obj = parent_obj
-)
-
 # Step 1: Integration and PCA
 obj <- reprocessing1_integration_pca(
   obj     = obj,
@@ -70,7 +64,6 @@ qsave(obj, "/srv/naiss/tonoianr/embryo_hem/Data/obj.qs")
 scBatchCorr/
 │
 ├── R/
-│   ├── reprocessing0_rebuild_from_raw.R       # Rebuild clean Seurat object from raw counts
 │   ├── reprocessing1_integration_pca.R        # Function for integration and PCA
 │   ├── reprocessing2_umap_clustering.R        # Function for UMAP and clustering
 │   ├── reprocessing3_export_resolution.R     # Function for exporting final resolution
@@ -83,27 +76,7 @@ scBatchCorr/
 ## Functions' descriptions
 
 ```r
-I. reprocessing0_rebuild_from_raw
-
-This function reconstructs a clean Seurat object directly from raw RNA counts
-after subsetting or subclustering. It removes all derived data such as SCT assays,
-normalized data layers, dimensional reductions, graphs, and clustering results.
-
-This step is strongly recommended after extracting biological subsets from a
-larger processed object and before running batch correction or reintegration.
-
-Parameters:
-	•	subset_obj: Seurat object containing a subset of cells (for example, a subcluster).
-	•	parent_obj: Original Seurat object containing raw RNA counts and full metadata.
-
-Output:
-	•	Clean Seurat object with:
-		– RNA assay only
-		– counts layer only
-		– preserved metadata
-		– no reductions, graphs, or SCT data
-
-II. reprocessing1_integration_pca
+I. reprocessing1_integration_pca
 
 This function integrates multiple datasets and performs PCA. It normalizes the data
 using SCTransform and finds integration anchors using RPCA. It then runs PCA on the
@@ -120,7 +93,7 @@ Output:
 	•	Integrated Seurat object with PCA results.
 	•	Elbow plot saved as .png.
 
-III. reprocessing2_umap_clustering
+II. reprocessing2_umap_clustering
 
 This function performs UMAP embedding and clustering at multiple resolutions using
 the Louvain algorithm. It visualizes the results and checks for batch mixing by
@@ -138,7 +111,7 @@ Output:
 	•	UMAP plot saved for each resolution.
 	•	Final clustered Seurat object saved for downstream analyses.
 
-IV. reprocessing3_export_resolution
+III. reprocessing3_export_resolution
 
 This function exports a final resolution and generates a UMAP plot labeled by clusters.
 
@@ -150,7 +123,7 @@ Parameters:
 Output:
 	•	UMAP plot saved for the selected resolution.
 
-V. reprocessing4_summarize_umap
+IV. reprocessing4_summarize_umap
 
 This function summarizes clustering results, visualizes UMAP, and generates a table
 with cluster counts and metadata for cells.

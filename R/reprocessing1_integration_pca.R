@@ -97,6 +97,9 @@ reprocessing1_integration_pca <- function(
   # Re-set Default to SCT (best for finding markers later)
   DefaultAssay(obj) <- "SCT"
   
+  # ElbowPlot needs this to know the height of the bars
+  obj[["pca"]]@stdev <- apply(Embeddings(obj, "pca"), 2, sd)
+  
   message(">>> Step 7: Generating ElbowPlot...")
   p_elbow <- ElbowPlot(obj, ndims = npcs) + 
     ggplot2::ggtitle(paste("PCA Variance -", name))

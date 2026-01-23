@@ -23,39 +23,42 @@ reprocessing1_integration_pca <- function(
     seed = NULL,
     min_cells = 5
 ) {
-  # 1. Setup
   if (!is.null(seed)) set.seed(seed)
-  out_outputs <- file.path(out_dir, "Outputs")
-  out_plots   <- file.path(out_dir, "Plots")
+  out_outputs <- file.path(out_dir, "Outputs"); out_plots <- file.path(out_dir, "Plots")
   dir.create(out_outputs, recursive = TRUE, showWarnings = FALSE)
   dir.create(out_plots, recursive = TRUE, showWarnings = FALSE)
   
-  # 2. Reset and Clean
+  # 2. Reset and STRIP old assays (Fixes the "Different cells" warning)
   DefaultAssay(obj) <- "RNA"
-  obj <- JoinLayers(obj) # Ensure we start with a clean, single layer
+  # Keep only RNA, remove everything else
+  for (assay_name in names(obj@assays)) {
+    if (assay_name != "RNA") obj[[assay_name]] <- NULL
+  }
+  obj <- JoinLayers(obj)
   
   # 3. Split and Filter
   obj_list <- SplitObject(obj, split.by = "orig.ident")
   cell_counts <- sapply(obj_list, ncol)
   obj_list <- obj_list[names(cell_counts)[cell_counts >= min_cells]]
+  if (length(obj_list) < 2) stop("Not enough samples.")
   
-  if (length(obj_list) < 2) stop("Not enough samples for integration.")
-  
-  # 4. Uniform Dimension Logic (RPCA Matrix Match Fix)
+  # 4. Uniform Dimension Logic
   min_size <- min(sapply(obj_list, ncol))
   safe_npcs <- max(2, min(npcs, (min_size - 1)))
-  message(">>> Smallest batch: ", min_size, " cells. Using safe_npcs: ", safe_npcs)
   
-  # 5. SCT and PCA (Per Sample)
+  # 5. SCT and PCA
   obj_list <- lapply(obj_list, function(x) {
     x <- SCTransform(x, vst.flavor = "v2", method = "glmGamPoi", verbose = FALSE)
     x <- RunPCA(x, npcs = safe_npcs, verbose = FALSE)
     return(x)
   })
   
-  # 6. Integration
+  # 6. Integration (The "Small Batch" Neighborhood Fix)
   features <- SelectIntegrationFeatures(obj_list, nfeatures = nfeatures)
   obj_list <- PrepSCTIntegration(obj_list, anchor.features = features)
+  
+  # Neighborhood parameters must be < smallest batch size
+  safe_k <- min(5, (min_size - 1))
   
   anchors <- FindIntegrationAnchors(
     object.list = obj_list, 
@@ -63,36 +66,22 @@ reprocessing1_integration_pca <- function(
     anchor.features = features, 
     dims = 1:safe_npcs, 
     reduction = "rpca", 
-    k.anchor = min(5, (min_size - 1))
+    k.anchor = safe_k,
+    k.filter = NA # This is the critical fix for the index error
   )
   
   integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT")
   
-  # 7. CONSOLIDATING RNA LAYERS (As requested: counts, data, scale.data)
-  # First, join the split counts from the various batches
+  # 7. Consolidate RNA
   integrated <- JoinLayers(integrated, assay = "RNA")
-  
-  # Populate 'data' and 'scale.data' layers in the RNA assay
-  # Note: This uses standard LogNormalization for the RNA assay specifically
   integrated <- NormalizeData(integrated, assay = "RNA", verbose = FALSE)
   integrated <- ScaleData(integrated, assay = "RNA", verbose = FALSE)
   
-  # 8. Final PCA & Default Assay Setting
+  # 8. Final PCA
   DefaultAssay(integrated) <- "integrated"
   final_npcs <- min(npcs, (ncol(integrated) - 1))
   integrated <- RunPCA(integrated, npcs = final_npcs, verbose = FALSE)
   
-  # 9. Save and Plot
   qs::qsave(integrated, file.path(out_outputs, paste0(name, "_integrated_after_pca.qs")))
-  
-  elbow_plot <- ElbowPlot(integrated, ndims = final_npcs)
-  ggplot2::ggsave(file.path(out_plots, paste0(name, "_ElbowPlot.png")), 
-                  plot = elbow_plot, width = 7, height = 5)
-  
-  message(">>> Integration Success!")
-  message(">>> Assays: ", paste(Assays(integrated), collapse=", "))
-  message(">>> RNA Layers: ", paste(Layers(integrated[["RNA"]]), collapse=", "))
-  message(">>> Default Assay: ", DefaultAssay(integrated))
-  
   return(integrated)
 }

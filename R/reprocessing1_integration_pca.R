@@ -1,17 +1,20 @@
-#' SCT-based RPCA integration followed by PCA (Seurat v5 Robust Version)
+#' Seurat v5 Hybrid Integration (SCT + RPCA)
 #'
-#' Performs SCT normalization, RPCA-based integration, PCA, and ElbowPlot
-#' with aggressive cleaning to prevent Seurat v5 layer-mismatch errors.
+#' Performs SCTransform normalization (v2), batch-specific PCA, and 
+#' RPCA-based integration using the Seurat v5 IntegrateLayers engine. 
+#' Includes smart merging of small batches (< min_cells) into larger ones 
+#' based on sample prefixes to ensure statistical stability.
 #'
 #' @param obj A Seurat object.
-#' @param name Character scalar used as filename prefix.
+#' @param name Character scalar used as filename prefix for saving.
 #' @param nfeatures Number of integration features.
-#' @param npcs Number of principal components.
-#' @param out_dir Base output directory.
+#' @param npcs Number of principal components to use (default: 50).
+#' @param out_dir Base output directory for the .qs file.
 #' @param seed Random seed for reproducibility.
-#' @param min_cells Minimum cells required per sample (default: 10).
+#' @param min_cells Minimum cells required per batch to avoid RPCA errors.
 #'
-#' @return A Seurat object after integration and PCA.
+#' @return A Seurat object with an integrated 'pca' reduction and 
+#'         consolidated RNA layers (counts, data, scale.data).
 #'
 #' @export
 reprocessing1_integration_pca <- function(
@@ -20,84 +23,83 @@ reprocessing1_integration_pca <- function(
     nfeatures = 3000,
     npcs = 50,
     out_dir,
-    seed = NULL,
-    min_cells = 30 # Standard statistical floor
+    seed = 1234,
+    min_cells = 30
 ) {
-  if (!is.null(seed)) set.seed(seed)
-  out_outputs <- file.path(out_dir, "Outputs"); out_plots <- file.path(out_dir, "Plots")
+  set.seed(seed)
+  out_outputs <- file.path(out_dir, "Outputs")
   dir.create(out_outputs, recursive = TRUE, showWarnings = FALSE)
-  dir.create(out_plots, recursive = TRUE, showWarnings = FALSE)
   
-  # 1. Clean Assays
+  # 1. Clean & Reset
+  message(">>> Step 1: Cleaning assays...")
   DefaultAssay(obj) <- "RNA"
-  for (assay_name in names(obj@assays)) {
-    if (assay_name != "RNA") obj[[assay_name]] <- NULL
-  }
+  obj[["SCT"]] <- NULL
+  obj[["integrated"]] <- NULL
   obj <- JoinLayers(obj)
   
-  # 2. SMART MERGING LOGIC
+  # 2. Smart Merging
+  message(">>> Step 2: Running Smart Merging logic...")
   meta <- obj@meta.data
   counts <- table(meta$orig.ident)
   small_batches <- names(counts)[counts < min_cells]
   large_batches <- names(counts)[counts >= min_cells]
   
   if(length(small_batches) > 0) {
-    message(">>> Detected small batches: ", paste(small_batches, collapse=", "))
-    
     for(sb in small_batches) {
-      # Extract prefix (e.g., "E16liver" from "E16liverAC21")
-      # We assume the prefix is the alphabetic part before the numbers
       prefix <- gsub("[0-9]+$", "", sb)
-      
-      # Find a large batch with the same prefix
       target <- grep(prefix, large_batches, value = TRUE)[1]
-      
       if(!is.na(target)) {
         new_name <- paste0(target, "+merged_", sb)
-        # Update metadata for all cells originally in the target OR the small batch
         meta$orig.ident[meta$orig.ident == sb | meta$orig.ident == target] <- new_name
-        # Update the large_batches list to reflect the new name for subsequent small batches
         large_batches[large_batches == target] <- new_name
-        message(">>> Merged ", sb, " into ", target, " -> New Batch: ", new_name)
-      } else {
-        message(">>> Warning: No matching prefix found for ", sb, ". It will be dropped.")
+        message("    [Merge] ", sb, " -> ", target)
       }
     }
     obj@meta.data <- meta
   }
   
-  # 3. Split and Filter (using the updated metadata)
-  obj_list <- SplitObject(obj, split.by = "orig.ident")
-  cell_counts <- sapply(obj_list, ncol)
-  obj_list <- obj_list[names(cell_counts)[cell_counts >= min_cells]]
+  # 3. SCT Multi-layer Workflow
+  message(">>> Step 3: Splitting Layers and SCT Normalization...")
+  obj[["RNA"]] <- split(obj[["RNA"]], f = obj$orig.ident)
+  obj <- SCTransform(obj, vst.flavor = "v2", method = "glmGamPoi", verbose = FALSE)
   
-  if (length(obj_list) < 2) stop("Not enough samples after merging/filtering.")
+  # 4. PCA per batch
+  message(">>> Step 4: Running PCA per batch...")
+  obj <- RunPCA(obj, npcs = npcs, verbose = FALSE)
   
-  # 4. Standard PCA & Integration (Now safe at npcs = 50)
-  obj_list <- lapply(obj_list, function(x) {
-    x <- SCTransform(x, vst.flavor = "v2", method = "glmGamPoi", verbose = FALSE)
-    x <- RunPCA(x, npcs = npcs, verbose = FALSE) # Back to full npcs!
-    return(x)
-  })
-  
-  features <- SelectIntegrationFeatures(obj_list, nfeatures = nfeatures)
-  obj_list <- PrepSCTIntegration(obj_list, anchor.features = features)
-  
-  anchors <- FindIntegrationAnchors(
-    object.list = obj_list, normalization.method = "SCT",
-    anchor.features = features, dims = 1:npcs, reduction = "rpca"
+  # 5. RPCA Integration (Seurat v5 style)
+  message(">>> Step 5: Integrating Layers using RPCA math...")
+  obj <- IntegrateLayers(
+    object = obj, 
+    method = RPCAIntegration, 
+    orig.reduction = "pca", 
+    new.reduction = "integrated_pca",
+    normalization.method = "SCT",
+    verbose = TRUE
   )
   
-  integrated <- IntegrateData(anchorset = anchors, normalization.method = "SCT")
+  # 6. Finalize Reductions and RNA Layers
+  message(">>> Step 6: Consolidating RNA for visualization...")
+  obj[["pca"]] <- obj[["integrated_pca"]]
+  obj[["integrated_pca"]] <- NULL
   
-  # 5. Finalize Structure
-  integrated <- JoinLayers(integrated, assay = "RNA")
-  integrated <- NormalizeData(integrated, assay = "RNA", verbose = FALSE)
-  integrated <- ScaleData(integrated, assay = "RNA", verbose = FALSE)
+  # Join and build standard RNA layers (counts, data, scale.data)
+  obj <- JoinLayers(obj)
+  obj <- NormalizeData(obj, assay = "RNA", verbose = FALSE)
+  # Scaling only variable features makes this 50GB-safe
+  obj <- ScaleData(obj, assay = "RNA", features = VariableFeatures(obj), verbose = FALSE)
   
-  DefaultAssay(integrated) <- "integrated"
-  integrated <- RunPCA(integrated, npcs = npcs, verbose = FALSE)
+  message(">>> Step 7: Saving...")
+  qs::qsave(obj, file.path(out_outputs, paste0(name, "_integrated.qs")))
   
-  qs::qsave(integrated, file.path(out_outputs, paste0(name, "_integrated_after_pca.qs")))
-  return(integrated)
+  # Final Audit Report (Fixed object names)
+  message("--- INTEGRATION COMPLETE ---")
+  message("Object Name:    ", name)
+  message("Final Assays:   ", paste(Assays(obj), collapse = ", "))
+  message("RNA Layers:     ", paste(Layers(obj[["RNA"]]), collapse = ", "))
+  message("Default Assay:  ", DefaultAssay(obj))
+  message("Total Cells:    ", ncol(obj))
+  message("-----------------------------")
+  
+  return(obj)
 }

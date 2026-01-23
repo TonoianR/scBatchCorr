@@ -80,14 +80,22 @@ reprocessing1_integration_pca <- function(
   
   # 6. Finalize Reductions and RNA Layers
   message(">>> Step 6: Consolidating RNA for visualization...")
+  
+  # Set the integrated reduction
   obj[["pca"]] <- obj[["integrated_pca"]]
   obj[["integrated_pca"]] <- NULL
   
-  # Join and build standard RNA layers (counts, data, scale.data)
+  # CRITICAL FIX: Switch to RNA before JoinLayers
+  DefaultAssay(obj) <- "RNA"
   obj <- JoinLayers(obj)
+  
+  # Standardize RNA
   obj <- NormalizeData(obj, assay = "RNA", verbose = FALSE)
-  # Scaling only variable features makes this 50GB-safe
+  # Scale only variable features for speed/memory
   obj <- ScaleData(obj, assay = "RNA", features = VariableFeatures(obj), verbose = FALSE)
+  
+  # Re-set Default to SCT (best for finding markers later)
+  DefaultAssay(obj) <- "SCT"
   
   message(">>> Step 7: Saving...")
   qs::qsave(obj, file.path(out_outputs, paste0(name, "_integrated.qs")))

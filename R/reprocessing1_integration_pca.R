@@ -97,7 +97,19 @@ reprocessing1_integration_pca <- function(
   # Re-set Default to SCT (best for finding markers later)
   DefaultAssay(obj) <- "SCT"
   
-  message(">>> Step 7: Saving...")
+  message(">>> Step 7: Generating ElbowPlot...")
+  p_elbow <- ElbowPlot(obj, ndims = npcs) + 
+    ggplot2::ggtitle(paste("PCA Variance -", name))
+  
+  out_plots <- file.path(out_dir, "Plots")
+  dir.create(out_plots, recursive = TRUE, showWarnings = FALSE)
+  
+  ggplot2::ggsave(
+    filename = file.path(out_plots, paste0(name, "_PCA_ElbowPlot.png")),
+    plot = p_elbow, width = 8, height = 6, dpi = 300
+  )
+  
+  message(">>> Step 8: Saving...")
   qs::qsave(obj, file.path(out_outputs, paste0(name, "_integrated.qs")))
   
   # Final Audit Report (Fixed object names)

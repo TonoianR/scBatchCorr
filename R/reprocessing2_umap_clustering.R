@@ -16,7 +16,7 @@
 reprocessing2_umap_clustering <- function(
     object,
     name,
-    dims = 1:30, # Increased default to catch subtle HSC signals
+    dims = 1:30, 
     resolutions = c(0.2, 0.4, 0.5, 0.6, 0.8, 1.0),
     out_dir = ".",
     seed = NULL
@@ -35,15 +35,13 @@ reprocessing2_umap_clustering <- function(
   message(">>> Running UMAP and clustering for ", name)
   
   # -------------------- UMAP & Neighbors --------------------
-  # USE SCT: It's the best assay for high-resolution blood/stem cell work
   DefaultAssay(object) <- "SCT"
   
   message(">>> Finding Neighbors using integrated PCA...")
   object <- FindNeighbors(
     object,
     dims = dims,
-    reduction = "pca", # This is our integrated space from Function 1
-    graph.name = "sct_snn", 
+    reduction = "pca", 
     verbose = FALSE
   )
   
@@ -66,17 +64,28 @@ reprocessing2_umap_clustering <- function(
     object <- FindClusters(
       object,
       resolution = res,
-      graph.name = "sct_snn", # Matching the graph name above
       algorithm = 1,
       verbose = FALSE
     )
     
-    # In Seurat v5, clustering columns are named: [Assay]_snn_res.[Res]
-    colname <- paste0("SCT_snn_res.", res)
+    # DYNAMIC SEARCH: Find the metadata column that Seurat just created
+    # We look for the column ending in 'res.[current resolution]'
+    res_pattern <- paste0("res.", res, "$")
+    current_res_col <- grep(res_pattern, colnames(object@meta.data), value = TRUE)
+    
+    # If multiple versions exist, take the most recent one
+    current_res_col <- tail(current_res_col, 1)
+    
+    if (length(current_res_col) == 0) {
+      # Fallback if grep fails
+      current_res_col <- "seurat_clusters"
+    }
+    
+    message("    [Plotting] Successfully identified metadata column: ", current_res_col)
     
     plots[[as.character(res)]] <- DimPlot(
       object,
-      group.by = colname,
+      group.by = current_res_col,
       label = TRUE,
       repel = TRUE,
       pt.size = 0.3,

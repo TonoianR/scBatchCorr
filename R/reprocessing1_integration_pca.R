@@ -37,7 +37,11 @@ reprocessing1_integration_pca <- function(
   obj[["integrated"]] <- NULL
   obj <- JoinLayers(obj)
   
-  # 2. Smart Merging
+  # NEW: Diagnostic Step - Save original IDs before merging
+  message(">>> Step 1b: Recording initial sample metadata...")
+  obj$initial_sample_ident <- obj$orig.ident
+  
+  # 2. Smart Merging (Biological Stability)
   message(">>> Step 2: Running Smart Merging logic...")
   meta <- obj@meta.data
   counts <- table(meta$orig.ident)
@@ -67,14 +71,28 @@ reprocessing1_integration_pca <- function(
   message(">>> Step 4: Running PCA per batch...")
   obj <- RunPCA(obj, npcs = npcs, verbose = FALSE)
   
-  # 5. RPCA Integration (Seurat v5 style)
+  # 5. RPCA Integration (Adaptive k.weight)
   message(">>> Step 5: Integrating Layers using RPCA math...")
+  
+  # CRITICAL FIX: Determine k.weight based on the smallest batch after merging
+  # This prevents the "k.weight is set larger than the number of cells" error.
+  final_counts <- table(obj$orig.ident)
+  min_batch_size <- min(final_counts)
+  
+  # Default is 100; if smallest batch is < 101, we use min_batch - 1
+  adaptive_k <- min(100, min_batch_size - 1)
+  
+  if(adaptive_k < 100) {
+    message("    [Note] Smallest batch has ", min_batch_size, " cells. Using adaptive k.weight: ", adaptive_k)
+  }
+  
   obj <- IntegrateLayers(
     object = obj, 
     method = RPCAIntegration, 
     orig.reduction = "pca", 
     new.reduction = "integrated_pca",
     normalization.method = "SCT",
+    k.weight = adaptive_k,
     verbose = TRUE
   )
   
@@ -85,20 +103,21 @@ reprocessing1_integration_pca <- function(
   obj[["pca"]] <- obj[["integrated_pca"]]
   obj[["integrated_pca"]] <- NULL
   
-  # CRITICAL FIX: Switch to RNA before JoinLayers
+  # Switch to RNA before JoinLayers
   DefaultAssay(obj) <- "RNA"
   obj <- JoinLayers(obj)
   
   # Standardize RNA
   obj <- NormalizeData(obj, assay = "RNA", verbose = FALSE)
-  # Scale only variable features for speed/memory
   obj <- ScaleData(obj, assay = "RNA", features = VariableFeatures(obj), verbose = FALSE)
   
-  # Re-set Default to SCT (best for finding markers later)
+  # Re-set Default to SCT
   DefaultAssay(obj) <- "SCT"
   
-  # ElbowPlot needs this to know the height of the bars
-  obj[["pca"]]@stdev <- apply(Embeddings(obj, "pca"), 2, sd)
+  # 7. ElbowPlot Logic
+  # Use slot() for robust stdev injection
+  stdevs <- unname(apply(Embeddings(obj, "pca"), 2, sd))
+  slot(obj[["pca"]], "stdev") <- stdevs
   
   message(">>> Step 7: Generating ElbowPlot...")
   p_elbow <- ElbowPlot(obj, ndims = npcs) + 
@@ -115,11 +134,10 @@ reprocessing1_integration_pca <- function(
   message(">>> Step 8: Saving...")
   qs::qsave(obj, file.path(out_outputs, paste0(name, "_integrated.qs")))
   
-  # Final Audit Report (Fixed object names)
+  # Final Audit Report
   message("--- INTEGRATION COMPLETE ---")
   message("Object Name:    ", name)
-  message("Final Assays:   ", paste(Assays(obj), collapse = ", "))
-  message("RNA Layers:     ", paste(Layers(obj[["RNA"]]), collapse = ", "))
+  message("Adaptive k:     ", adaptive_k)
   message("Default Assay:  ", DefaultAssay(obj))
   message("Total Cells:    ", ncol(obj))
   message("-----------------------------")

@@ -37,11 +37,15 @@ reprocessing2_umap_clustering <- function(
   # -------------------- UMAP & Neighbors --------------------
   DefaultAssay(object) <- "SCT"
   
+  # FORCE the graph name to be consistent
+  graph_name <- "sct_snn"
+  
   message(">>> Finding Neighbors using integrated PCA...")
   object <- FindNeighbors(
     object,
     dims = dims,
     reduction = "pca", 
+    graph.name = c("sct_nn", graph_name), # Explicitly naming the graphs
     verbose = FALSE
   )
   
@@ -64,28 +68,36 @@ reprocessing2_umap_clustering <- function(
     object <- FindClusters(
       object,
       resolution = res,
+      graph.name = graph_name, 
       algorithm = 1,
       verbose = FALSE
     )
     
-    # DYNAMIC SEARCH: Find the metadata column that Seurat just created
-    # We look for the column ending in 'res.[current resolution]'
+    # --- CASE-INSENSITIVE SMART SEARCH ---
+    all_cols <- colnames(object@meta.data)
     res_pattern <- paste0("res.", res, "$")
-    current_res_col <- grep(res_pattern, colnames(object@meta.data), value = TRUE)
     
-    # If multiple versions exist, take the most recent one
-    current_res_col <- tail(current_res_col, 1)
+    # 1. Find all columns ending in this resolution (ignoring case)
+    potential_cols <- all_cols[grep(res_pattern, all_cols, ignore.case = TRUE)]
     
-    if (length(current_res_col) == 0) {
-      # Fallback if grep fails
-      current_res_col <- "seurat_clusters"
+    # 2. Filter for columns containing 'SCT' or 'sct' (ignoring case)
+    # This prevents grabbing old 'integrated' columns
+    sct_cols <- potential_cols[grep("SCT", potential_cols, ignore.case = TRUE)]
+    
+    if (length(sct_cols) > 0) {
+      res_col <- tail(sct_cols, 1) # Grab the newest SCT-based column
+    } else if (length(potential_cols) > 0) {
+      res_col <- tail(potential_cols, 1) # Fallback to any match
+    } else {
+      res_col <- "seurat_clusters" # Final emergency fallback
     }
+    # -------------------------------------
     
-    message("    [Plotting] Successfully identified metadata column: ", current_res_col)
+    message("    [Plotting] Successfully identified metadata column: ", res_col)
     
     plots[[as.character(res)]] <- DimPlot(
       object,
-      group.by = current_res_col,
+      group.by = res_col,
       label = TRUE,
       repel = TRUE,
       pt.size = 0.3,
@@ -93,14 +105,13 @@ reprocessing2_umap_clustering <- function(
     ) + ggplot2::ggtitle(paste("Res", res)) + NoLegend()
   }
   
-  # Save plots
+  # -------------------- saving and plotting --------------------
   comparison <- patchwork::wrap_plots(plots, ncol = 3)
   ggplot2::ggsave(
     filename = file.path(out_plots, paste0(name, "_UMAP_by_resolution.png")),
     plot = comparison, width = 16, height = 9, dpi = 300
   )
   
-  # Batch mixing check
   p_mix <- DimPlot(object, group.by = "orig.ident", pt.size = 0.3, shuffle = TRUE)
   ggplot2::ggsave(
     filename = file.path(out_plots, paste0(name, "_UMAP_by_sample.png")),
